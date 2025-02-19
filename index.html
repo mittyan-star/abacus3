@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>みっちゃんそろばん 統合版（右寄せ・クリック操作＋音声追加・ヒント機能付き・PointerEvent対応）</title>
+  <style>
+    /* --- 共通スタイル（1つ目をベース） --- */
+    /* カスタムフォント */
+    @font-face {
+      font-family: 'MyCustomFont';
+      src: url('fonts/MyCustomFont.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #FFF8E1;
+      font-family: 'Comic Sans MS', cursive, sans-serif;
+    }
+    /* アプリ全体 */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      box-sizing: border-box;
+    }
+    /* ヘッダー */
+    #header {
+      flex: 0 0 auto;
+      padding: 20px;
+      background: #FFF8E1;
+    }
+    /* 操作パネル：左右に画像、入力欄、ボタン */
+    #controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    #leftImage, #rightImage {
+      max-height: 40px;
+    }
+    #expression, #timeLimit {
+      font-size: 18px;
+      padding: 5px;
+      margin: 0 5px;
+      width: 200px;
+    }
+    #calculateBtn, #resetBtn, #hintBtn {
+      font-size: 18px;
+      padding: 5px 10px;
+      margin: 0 5px;
+      cursor: pointer;
+    }
+    /* メイン領域 */
+    #main {
+      flex: 1 1 auto;
+      overflow: hidden;
+      position: relative;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    /* そろばん部分 */
+    #abacus {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #FFF9E1;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    /* 数式表示部：そろばんの左側に配置 */
+    #vertical-expression-container {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 100%;
+      overflow-y: auto;
+      border: 2px solid #999;
+      border-radius: 5px;
+      background: #fff;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    #vertical-expression-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-family: 'MyCustomFont', sans-serif;
+      text-align: right;
+      font-size: var(--expression-font-size, 24px);
+    }
+    #vertical-expression-list li {
+      margin-bottom: 5px;
+      transition: background-color 0.3s;
+      white-space: nowrap;
+    }
+    .problem-sign {
+      margin-right: 2px;
+    }
+    .problem-digit {
+      display: inline-block;
+      transition: background-color 0.3s;
+      cursor: pointer;
+    }
+    .highlight-line {
+      background-color: #ffffcc;
+    }
+    .highlight-place {
+      background-color: #ffcc99;
+    }
+    /* そろばん本体 (#abacus-inner) */
+    /* 内部サイズ396×242、border 20pxで全体436×282 */
+    #abacus-inner {
+      position: absolute;
+      transform-origin: top left;
+      border: 20px solid transparent;
+      border-image: url("images/wood-texture.jpg") 20 round;
+      box-sizing: content-box;
+      width: 396px;
+      height: 242px;
+      cursor: pointer;
+      touch-action: none; /* タッチ操作によるスクロールを抑制 */
+    }
+    /* 各カラム */
+    .abacus-column {
+      position: absolute;
+      width: calc(396px / 6);
+      height: 242px;
+    }
+    .abacus-column[data-index="0"] { left: 0; }
+    .abacus-column[data-index="1"] { left: calc(396px / 6); }
+    .abacus-column[data-index="2"] { left: calc(396px / 3); }
+    .abacus-column[data-index="3"] { left: calc(396px / 2); }
+    .abacus-column[data-index="4"] { left: calc(396px * 2 / 3); }
+    .abacus-column[data-index="5"] { left: calc(396px * 5 / 6); }
+    /* 横棒部分：クリックで reset と音声再生 */
+    .bar-top-line, .main-bar, .bar-bottom-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      z-index: 2;
+      cursor: pointer;
+    }
+    .bar-top-line {
+      top: 52px;
+      height: 2px;
+      background: url("images/wood-texture.jpg") no-repeat center;
+      background-size: cover;
+    }
+    .main-bar {
+      top: 54px;
+      height: 10px;
+      background: url("images/bar-texture.jpg") no-repeat center;
+      background-size: cover;
+    }
+    .bar-bottom-line {
+      top: 64px;
+      height: 2px;
+      background: url("images/wood-texture.jpg") no-repeat center;
+      background-size: cover;
+    }
+    .rod {
+      position: absolute;
+      top: 0;
+      left: 27.5px;
+      width: 11px;
+      height: 242px;
+      background: url("images/rod-texture.jpg") no-repeat center;
+      background-size: cover;
+      z-index: 1;
+    }
+    .bead {
+      position: absolute;
+      width: 60px;
+      height: 35px;
+      clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+      background: url("images/bead-texture.jpg") no-repeat center;
+      background-size: cover;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      transition: top 0.2s ease;
+      z-index: 3;
+      left: 3px;
+      cursor: pointer;
+    }
+    .upper-bead {
+      top: 0px;
+    }
+    .lower-bead[data-index="0"] { top: 102px; }
+    .lower-bead[data-index="1"] { top: 137px; }
+    .lower-bead[data-index="2"] { top: 172px; }
+    .lower-bead[data-index="3"] { top: 207px; }
+    .black-circle {
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      background: black;
+      border-radius: 50%;
+      top: 56px;
+      left: 30px;
+      z-index: 4;
+    }
+
+    /* --- ヒントカード＆ミニそろばん（2つ目のコードより） --- */
+    #hint-card {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 300px;
+      background-color: #FFECB3;
+      z-index: 999;
+      border: 3px solid #FFB74D;
+      border-radius: 10px;
+      padding: 10px;
+      box-sizing: border-box;
+      gap: 20px;
+      display: none;
+      flex-direction: row;
+    }
+    .hint-left, .hint-right {
+      flex: 1;
+      border: 2px solid #FFCC80;
+      border-radius: 8px;
+      padding: 10px;
+      box-sizing: border-box;
+      overflow: auto;
+      background-color: #FFF3E0;
+    }
+    .hint-left h2, .hint-right h2 {
+      margin-top: 0;
+    }
+    .level-list {
+      display: none;
+      margin-top: 10px;
+    }
+    .level-list.active {
+      display: block;
+    }
+    .example-btn {
+      background-color: #F48FB1;
+      color: #ffffff;
+      border: none;
+      border-radius: 5px;
+      padding: 8px 12px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 5px 2px;
+    }
+    .example-btn:hover {
+      background-color: #F06292;
+    }
+    /* ミニそろばん */
+    #mini-abacus {
+      position: relative;
+      width: 150px;
+      height: 190px;
+      border: 10px solid transparent;
+      border-image: url("images/miniframe-border.jpg") 10 round;
+      background: url("images/miniframe-inside.jpg") center/cover no-repeat;
+      border-radius: 5px;
+      box-sizing: content-box;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .mini-single-bar {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 42px;
+      height: 6px;
+      background: url("images/miniframe-border.jpg") center/cover no-repeat;
+      z-index: 2;
+    }
+    .mini-column {
+      position: absolute;
+      width: 50px;
+      height: 100%;
+      top: 0;
+    }
+    .mini-rod {
+      position: absolute;
+      top: 0;
+      left: 22px;
+      width: 6px;
+      height: 100%;
+      background: url("images/miniframe-border.jpg") center/cover no-repeat;
+      z-index: 1;
+    }
+    .mini-bead {
+      position: absolute;
+      width: 40px;
+      height: 25px;
+      left: 5px;
+      z-index: 3;
+      transition: top 0.4s ease;
+    }
+    .mini-bead img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- ヘッダー -->
+    <header id="header">
+      <div id="controls">
+        <img id="leftImage" src="images/left.png" alt="left image">
+        <input type="text" id="expression" placeholder="けいさんしきをいれてね (例: 999999+8888-777)">
+        <input type="number" id="timeLimit" placeholder="じかん(びょう)">
+        <button id="calculateBtn">はじめる</button>
+        <button id="resetBtn">0にする</button>
+        <button id="hintBtn">ヒント</button>
+        <img id="rightImage" src="images/right.png" alt="right image">
+      </div>
+    </header>
+    <!-- メイン領域 -->
+    <main id="main">
+      <div id="abacus">
+        <!-- 数式表示部 -->
+        <div id="vertical-expression-container">
+          <ul id="vertical-expression-list"></ul>
+        </div>
+        <!-- そろばん本体 -->
+        <div id="abacus-inner">
+          <div class="bar-top-line"></div>
+          <div class="main-bar"></div>
+          <div class="bar-bottom-line"></div>
+          <!-- 6カラム -->
+          <div class="abacus-column" data-index="0">
+            <div class="rod"></div>
+            <div class="bead upper-bead"></div>
+            <div class="bead lower-bead" data-index="0"></div>
+            <div class="bead lower-bead" data-index="1"></div>
+            <div class="bead lower-bead" data-index="2"></div>
+            <div class="bead lower-bead" data-index="3"></div>
+          </div>
+          <div class="abacus-column" data-index="1">
+            <div class="rod"></div>
+            <div class="bead upper-bead"></div>
+            <div class="bead lower-bead" data-index="0"></div>
+            <div class="bead lower-bead" data-index="1"></div>
+            <div class="bead lower-bead" data-index="2"></div>
+            <div class="bead lower-bead" data-index="3"></div>
+          </div>
+          <div class="abacus-column" data-index="2">
+            <div class="rod"></div>
+            <div class="bead upper-bead"></div>
+            <div class="bead lower-bead" data-index="0"></div>
+            <div class="bead lower-bead" data-index="1"></div>
+            <div class="bead lower-bead" data-index="2"></div>
+            <div class="bead lower-bead" data-index="3"></div>
+            <div class="black-circle"></div>
+          </div>
+          <div class="abacus-column" data-index="3">
+            <div class="rod"></div>
+            <div class="bead upper-bead"></div>
+            <div class="bead lower-bead" data-index="0"></div>
+            <div class="bead lower-bead" data-index="1"></div>
+            <div class="bead lower-bead" data-index="2"></div>
+            <div class="bead lower-bead" data-index="3"></div>
+          </div>
+          <div class="abacus-column" data-index="4">
+            <div class="rod"></div>
+            <div class="bead upper-bead"></div>
+            <div class="bead lower-bead" data-index="0"></div>
+            <div class="bead lower-bead" data-index="1"></div>
+            <div class="bead lower-bead" data-index="2"></div>
+            <div class="bead lower-bead" data-index="3"></div>
+          </div>
+          <div class="abacus-column" data-index="5">
+            <div class="rod"></div>
+            <div class="bead upper-bead"></div>
+            <div class="bead lower-bead" data-index="0"></div>
+            <div class="bead lower-bead" data-index="1"></div>
+            <div class="bead lower-bead" data-index="2"></div>
+            <div class="bead lower-bead" data-index="3"></div>
+            <div class="black-circle"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <!-- 音声要素 -->
+  <audio id="activeSound" src="sounds/active.mp3" preload="auto"></audio>
+  <audio id="nonactiveSound" src="sounds/nonactive.mp3" preload="auto"></audio>
+  <audio id="barSound" src="sounds/bar.mp3" preload="auto"></audio>
+  
+  <!-- ヒントカード -->
+  <div id="hint-card">
+    <div class="hint-left">
+      <h2 style="color:#E64A19;">どれだろう？</h2>
+      <button id="hintAddBtn">たしざん</button>
+      <button id="hintSubBtn">ひきざん</button>
+      <!-- たし算レベル一覧 -->
+      <div id="addLevels" class="level-list">
+        <p style="color:#D84315;">レベル1 (2)の本：8+9, 9+2</p>
+        <button class="example-btn" data-exp="8+9">8+9</button>
+        <button class="example-btn" data-exp="9+2">9+2</button>
+        <p style="color:#D84315;">レベル2 (4)の本：4+3, 2+4</p>
+        <button class="example-btn" data-exp="4+3">4+3</button>
+        <button class="example-btn" data-exp="2+4">2+4</button>
+        <p style="color:#D84315;">レベル3 (5)の本：6+7, 8+6</p>
+        <button class="example-btn" data-exp="6+7">6+7</button>
+        <button class="example-btn" data-exp="8+6">8+6</button>
+      </div>
+      <!-- ひき算レベル一覧 -->
+      <div id="subLevels" class="level-list">
+        <p style="color:#283593;">レベル1 (3)の本：11-3, 15-6</p>
+        <button class="example-btn" data-exp="11-3">11-3</button>
+        <button class="example-btn" data-exp="15-6">15-6</button>
+        <p style="color:#283593;">レベル2 (4)の本：5-1, 7-3</p>
+        <button class="example-btn" data-exp="5-1">5-1</button>
+        <button class="example-btn" data-exp="7-3">7-3</button>
+        <p style="color:#283593;">レベル3 (5)の本：12-6, 14-8</p>
+        <button class="example-btn" data-exp="12-6">12-6</button>
+        <button class="example-btn" data-exp="14-8">14-8</button>
+      </div>
+    </div>
+    <div class="hint-right">
+      <h2 style="color:#4CAF50;">ミニそろばん</h2>
+      <div id="mini-abacus"></div>
+    </div>
+  </div>
+  
+  <script>
+    /***********************
+     * 既存の計算式・アニメーション処理（1つ目のコードベース）
+     ***********************/
+    document.getElementById('expression').addEventListener('input', function() {
+      let value = this.value;
+      value = value.replace(/[^0-9+\-]/g, '');
+      value = value.replace(/([+\-]){2,}/g, '$1');
+      this.value = value;
+      displayVerticalExpression(this.value);
+    });
+    
+    let steps = [];
+    let animationInterval = null;
+    let globalLinesData = [];
+    let linePlaceToStepIndex = [];
+    let currentStepIndex = 0;
+    const DIGIT_COUNT = 6;
+    const UPPER_DEFAULT_TOP = 0;
+    const UPPER_ACTIVE_TOP = 17;
+    const LOWER_DEFAULT_TOPS = [102, 137, 172, 207];
+    const LOWER_ACTIVE_BASE = 66;
+    const LOWER_GAP = 35;
+    let currentScaleFactor = 1;
+    
+    // 音声再生用
+    const activeSound = document.getElementById('activeSound');
+    const nonactiveSound = document.getElementById('nonactiveSound');
+    const barSound = document.getElementById('barSound');
+    
+    function updateColumn(column, digit) {
+      const upper = column.querySelector('.upper-bead');
+      const lowers = column.querySelectorAll('.lower-bead');
+      upper.classList.remove('active');
+      upper.style.top = UPPER_DEFAULT_TOP + 'px';
+      lowers.forEach((lower, idx) => {
+        lower.classList.remove('active');
+        lower.style.top = LOWER_DEFAULT_TOPS[idx] + 'px';
+      });
+      if (digit >= 5) {
+        upper.classList.add('active');
+        upper.style.top = UPPER_ACTIVE_TOP + 'px';
+        const activeCount = digit - 5;
+        for (let i = 0; i < activeCount; i++) {
+          const bead = column.querySelector(`.lower-bead[data-index="${i}"]`);
+          if (bead) {
+            bead.classList.add('active');
+            bead.style.top = (LOWER_ACTIVE_BASE + i * LOWER_GAP) + 'px';
+          }
+        }
+      } else {
+        for (let i = 0; i < digit; i++) {
+          const bead = column.querySelector(`.lower-bead[data-index="${i}"]`);
+          if (bead) {
+            bead.classList.add('active');
+            bead.style.top = (LOWER_ACTIVE_BASE + i * LOWER_GAP) + 'px';
+          }
+        }
+      }
+    }
+    
+    function updateAbacusDisplay(number) {
+      const digits = String(number).padStart(DIGIT_COUNT, '0').split('').map(Number);
+      const columns = document.querySelectorAll('#abacus-inner .abacus-column');
+      columns.forEach((col, i) => {
+        updateColumn(col, digits[i]);
+      });
+    }
+    
+    function breakNumberIntoPlaceValues(num) {
+      const str = String(num);
+      const len = str.length;
+      const result = [];
+      for (let i = 0; i < len; i++) {
+        const d = parseInt(str[i], 10);
+        if (d === 0) continue;
+        const place = len - 1 - i;
+        result.push(d * Math.pow(10, place));
+      }
+      return result;
+    }
+    
+    function parseOperand(operandStr) {
+      let sign = "";
+      let absStr = operandStr;
+      if (operandStr.startsWith("-")) {
+        sign = "-";
+        absStr = operandStr.slice(1);
+      }
+      const digitsArr = absStr.split('');
+      const val = parseInt(absStr, 10);
+      const placeVals = breakNumberIntoPlaceValues(val);
+      const nonZeroIndices = [];
+      digitsArr.forEach((ch, idx) => {
+        if (ch !== "0") nonZeroIndices.push(idx);
+      });
+      return { sign, digits: digitsArr, placeValues: placeVals, nonZeroIndices };
+    }
+    
+    function expressionToOperandLines(expr) {
+      const tokens = expr.replace(/\s+/g, '').match(/(\d+|[+\-])/g);
+      if (!tokens) return [];
+      let lines = [];
+      if (tokens.length > 0 && /^\d+$/.test(tokens[0])) {
+        lines.push(tokens[0]);
+      }
+      for (let i = 1; i < tokens.length; i += 2) {
+        const op = tokens[i];
+        const numStr = tokens[i+1];
+        if (!numStr) break;
+        lines.push(op === '+' ? numStr : '-' + numStr);
+      }
+      return lines;
+    }
+    
+    function displayVerticalExpression(expr) {
+      const list = document.getElementById('vertical-expression-list');
+      list.innerHTML = '';
+      globalLinesData = [];
+      const lines = expressionToOperandLines(expr);
+      lines.forEach(lineStr => {
+        const { sign, digits, placeValues, nonZeroIndices } = parseOperand(lineStr);
+        const li = document.createElement('li');
+        let signElem = null;
+        if (sign === "-") {
+          signElem = document.createElement('span');
+          signElem.classList.add('problem-sign');
+          signElem.textContent = "-";
+          li.appendChild(signElem);
+        }
+        const digitElems = digits.map((ch, idx) => {
+          const sp = document.createElement('span');
+          sp.classList.add('problem-digit');
+          sp.dataset.placeIndex = idx;
+          sp.textContent = ch;
+          li.appendChild(sp);
+          return sp;
+        });
+        list.appendChild(li);
+        globalLinesData.push({
+          sign,
+          digits, 
+          placeValues,
+          nonZeroIndices,
+          signElem,
+          digitElems
+        });
+      });
+      updateAbacusScaling();
+    }
+    
+    function buildCalculationSteps(expr) {
+      const tokens = expr.replace(/\s+/g, '').match(/(\d+|[+\-])/g);
+      if (!tokens) throw new Error("式が正しくありません。");
+      if (!/^\d+$/.test(tokens[0])) throw new Error("式は数字から始めてください。");
+      linePlaceToStepIndex = [];
+      let currentValue = 0;
+      const newSteps = [];
+      newSteps.push({ value: 0, lineIndex: null, placeIndex: null });
+      let operandIndex = 0;
+      const mapping0 = globalLinesData[0].nonZeroIndices;
+      const firstParts = globalLinesData[0].placeValues;
+      for (let j = 0; j < firstParts.length; j++) {
+        currentValue += firstParts[j];
+        if (currentValue < 0) throw new Error("計算途中で負の数になりました。");
+        newSteps.push({
+          value: currentValue,
+          lineIndex: 0,
+          placeIndex: mapping0[j]
+        });
+      }
+      operandIndex++;
+      let i = 1;
+      while (i < tokens.length) {
+        const op = tokens[i];
+        const numStr = tokens[i+1];
+        i += 2;
+        if (!numStr || !/^\d+$/.test(numStr)) throw new Error("式の構文が不正です。");
+        const mapping = globalLinesData[operandIndex].nonZeroIndices;
+        const parts = globalLinesData[operandIndex].placeValues;
+        const lineIndex = operandIndex;
+        for (let j = 0; j < parts.length; j++) {
+          currentValue = op === '+' ? currentValue + parts[j] : currentValue - parts[j];
+          if (currentValue < 0) throw new Error("計算途中で負の数になりました。");
+          newSteps.push({
+            value: currentValue,
+            lineIndex,
+            placeIndex: mapping[j]
+          });
+        }
+        operandIndex++;
+      }
+      return newSteps;
+    }
+    
+    function mapStepsToLinePlace(stepArray) {
+      linePlaceToStepIndex = [];
+      for (let i = 0; i < stepArray.length; i++) {
+        const st = stepArray[i];
+        const li = st.lineIndex;
+        const pi = st.placeIndex;
+        if (li !== null && pi !== null) {
+          if (!linePlaceToStepIndex[li]) {
+            linePlaceToStepIndex[li] = [];
+          }
+          linePlaceToStepIndex[li][pi] = i;
+        }
+      }
+    }
+    
+    function attachReplayClickHandlers() {
+      globalLinesData.forEach((lineData, lineIndex) => {
+        lineData.digitElems.forEach((digitElem, placeIndex) => {
+          const stepIdx = (linePlaceToStepIndex[lineIndex] || [])[placeIndex];
+          if (typeof stepIdx === 'number') {
+            digitElem.dataset.stepIndex = stepIdx;
+            digitElem.addEventListener('click', () => {
+              replayStep(stepIdx);
+            });
+          }
+        });
+      });
+    }
+    
+    function animateSteps(stepArray, timeLimit) {
+      const container = document.getElementById('vertical-expression-container');
+      container.style.overflowY = 'hidden';
+      if (animationInterval) clearInterval(animationInterval);
+      let intervalMs = 1000;
+      const totalSteps = stepArray.length;
+      if (timeLimit > 0 && totalSteps > 1)
+        intervalMs = (timeLimit * 1000) / (totalSteps - 1);
+      currentStepIndex = 0;
+      updateAbacusDisplay(stepArray[0].value);
+      highlightProblem(stepArray[0].lineIndex, stepArray[0].placeIndex);
+      animationInterval = setInterval(() => {
+        currentStepIndex++;
+        if (currentStepIndex >= totalSteps) {
+          clearInterval(animationInterval);
+          animationInterval = null;
+          container.style.overflowY = 'auto';
+          return;
+        }
+        updateAbacusDisplay(stepArray[currentStepIndex].value);
+        highlightProblem(stepArray[currentStepIndex].lineIndex, stepArray[currentStepIndex].placeIndex);
+      }, intervalMs);
+    }
+    
+    function replayStep(stepIndex) {
+      const container = document.getElementById('vertical-expression-container');
+      if (stepIndex <= 0) return;
+      if (animationInterval) {
+        clearInterval(animationInterval);
+        animationInterval = null;
+      }
+      updateAbacusDisplay(steps[stepIndex - 1].value);
+      setTimeout(() => {
+        updateAbacusDisplay(steps[stepIndex].value);
+        container.style.overflowY = 'auto';
+      }, 200);
+      highlightProblem(steps[stepIndex].lineIndex, steps[stepIndex].placeIndex);
+    }
+    
+    function highlightProblem(lineIndex, placeIndex) {
+      globalLinesData.forEach((lineData) => {
+        const liElem = (lineData.signElem && lineData.signElem.parentElement) ||
+          (lineData.digitElems[0] && lineData.digitElems[0].parentElement);
+        if (liElem) liElem.classList.remove('highlight-line');
+        lineData.digitElems.forEach(de => de.classList.remove('highlight-place'));
+      });
+      if (lineIndex == null) return;
+      if (lineIndex >= 0 && lineIndex < globalLinesData.length) {
+        const lineData = globalLinesData[lineIndex];
+        const liElem = (lineData.signElem && lineData.signElem.parentElement) ||
+          (lineData.digitElems[0] && lineData.digitElems[0].parentElement);
+        if (liElem) liElem.classList.add('highlight-line');
+        if (placeIndex != null && lineData.digitElems[placeIndex])
+          lineData.digitElems[placeIndex].classList.add('highlight-place');
+      }
+      const nextLineIndex = lineIndex + 1;
+      if (nextLineIndex >= 0 && nextLineIndex < globalLinesData.length) {
+        const nextLineData = globalLinesData[nextLineIndex];
+        const nextLiElem = (nextLineData.signElem && nextLineData.signElem.parentElement) ||
+          (nextLineData.digitElems[0] && nextLineData.digitElems[0].parentElement);
+        if (nextLiElem) {
+          nextLiElem.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'nearest'
+          });
+        }
+      }
+    }
+    
+    document.getElementById('calculateBtn').addEventListener('click', () => {
+      const expr = document.getElementById('expression').value;
+      if (!expr.trim()) {
+        alert("式を入力してください。");
+        return;
+      }
+      let newSteps;
+      try {
+        newSteps = buildCalculationSteps(expr);
+      } catch (e) {
+        alert(e.message);
+        return;
+      }
+      steps = newSteps;
+      mapStepsToLinePlace(steps);
+      attachReplayClickHandlers();
+      let timeLimit = parseFloat(document.getElementById('timeLimit').value);
+      if (isNaN(timeLimit) || timeLimit <= 0) timeLimit = 0;
+      animateSteps(steps, timeLimit);
+    });
+    
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if (animationInterval) {
+        clearInterval(animationInterval);
+        animationInterval = null;
+      }
+      updateAbacusDisplay(0);
+      document.getElementById('expression').value = '';
+      document.getElementById('vertical-expression-list').innerHTML = '';
+      globalLinesData = [];
+      linePlaceToStepIndex = [];
+      steps = [];
+      document.getElementById('vertical-expression-container').style.overflowY = 'auto';
+      updateAbacusScaling();
+    });
+    
+    function updateAbacusScaling() {
+      const abacus = document.getElementById('abacus');
+      const verticalContainer = document.getElementById('vertical-expression-container');
+      const abacusInner = document.getElementById('abacus-inner');
+      const gap = 10;
+      const mainWidth = abacus.clientWidth;
+      const mainHeight = abacus.clientHeight;
+      const designWidth = 436;
+      const designHeight = 282;
+      const scaleFactor = Math.min(mainWidth / designWidth, mainHeight / designHeight);
+      currentScaleFactor = scaleFactor;
+      const scaledWidth = designWidth * scaleFactor;
+      const scaledHeight = designHeight * scaleFactor;
+      const abacusInnerLeft = mainWidth - scaledWidth;
+      abacusInner.style.transform = `scale(${scaleFactor})`;
+      abacusInner.style.left = abacusInnerLeft + "px";
+      abacusInner.style.top = ((mainHeight - scaledHeight) / 2) + "px";
+      verticalContainer.style.width = (abacusInnerLeft - gap) + "px";
+      
+      let maxChars = 0;
+      const list = document.getElementById('vertical-expression-list');
+      for (const li of list.children) {
+        const text = li.textContent.replace(/\s+/g, '');
+        if (text.length > maxChars) maxChars = text.length;
+      }
+      if (maxChars === 0) maxChars = 1;
+      const calcFontSize = verticalContainer.offsetWidth / (maxChars + 1);
+      const newFontSize = Math.max(24, calcFontSize);
+      document.documentElement.style.setProperty("--expression-font-size", newFontSize + "px");
+    }
+    
+    window.addEventListener('resize', updateAbacusScaling);
+    const verticalContainerObserver = new ResizeObserver(() => { updateAbacusScaling(); });
+    verticalContainerObserver.observe(document.getElementById('vertical-expression-container'));
+    
+    window.addEventListener('load', () => {
+      updateAbacusScaling();
+      updateAbacusDisplay(0);
+      makeBeadsDraggable();
+      createMiniAbacus();
+      resetMiniAbacus();
+    });
+    
+    /***********************
+     * そろばんの玉を Pointer Events でドラッグで動かす処理
+     ***********************/
+    let currentDrag = null;
+    let dragOffsetY = 0;
+    
+    function makeBeadsDraggable() {
+      const beads = document.querySelectorAll('#abacus-inner .bead');
+      beads.forEach(bead => {
+        bead.addEventListener('pointerdown', startDrag);
+      });
+    }
+    
+    function startDrag(e) {
+      currentDrag = e.target;
+      dragOffsetY = e.clientY - parseInt(currentDrag.style.top || 0);
+      window.addEventListener('pointermove', onDrag);
+      window.addEventListener('pointerup', stopDrag);
+      e.preventDefault();
+    }
+    
+    function onDrag(e) {
+      if (!currentDrag) return;
+      let newTop = e.clientY - dragOffsetY;
+      if (currentDrag.classList.contains('upper-bead')) {
+        const threshold = (UPPER_DEFAULT_TOP + UPPER_ACTIVE_TOP) / 2;
+        if (newTop >= threshold) {
+          if (!currentDrag.classList.contains('active')) {
+            activeSound.currentTime = 0;
+            activeSound.play();
+          }
+          currentDrag.classList.add('active');
+          currentDrag.style.top = UPPER_ACTIVE_TOP + 'px';
+        } else {
+          if (currentDrag.classList.contains('active')) {
+            nonactiveSound.currentTime = 0;
+            nonactiveSound.play();
+          }
+          currentDrag.classList.remove('active');
+          currentDrag.style.top = UPPER_DEFAULT_TOP + 'px';
+        }
+      } else if (currentDrag.classList.contains('lower-bead')) {
+        const index = parseInt(currentDrag.getAttribute('data-index'));
+        const defaultTop = LOWER_DEFAULT_TOPS[index];
+        const activeTop = LOWER_ACTIVE_BASE + index * LOWER_GAP;
+        const threshold = (activeTop + defaultTop) / 2;
+        if (newTop < threshold) {
+          if (!currentDrag.classList.contains('active')) {
+            activeSound.currentTime = 0;
+            activeSound.play();
+          }
+          currentDrag.style.top = activeTop + 'px';
+          currentDrag.classList.add('active');
+          const column = currentDrag.parentElement;
+          const lowerBeads = column.querySelectorAll('.lower-bead');
+          lowerBeads.forEach(bead => {
+            const beadIndex = parseInt(bead.getAttribute('data-index'));
+            if (beadIndex < index) {
+              bead.style.top = (LOWER_ACTIVE_BASE + beadIndex * LOWER_GAP) + 'px';
+              bead.classList.add('active');
+            }
+          });
+        } else {
+          if (currentDrag.classList.contains('active')) {
+            nonactiveSound.currentTime = 0;
+            nonactiveSound.play();
+          }
+          currentDrag.style.top = defaultTop + 'px';
+          currentDrag.classList.remove('active');
+          const column = currentDrag.parentElement;
+          const lowerBeads = column.querySelectorAll('.lower-bead');
+          lowerBeads.forEach(bead => {
+            const beadIndex = parseInt(bead.getAttribute('data-index'));
+            if (beadIndex > index) {
+              bead.style.top = LOWER_DEFAULT_TOPS[beadIndex] + 'px';
+              bead.classList.remove('active');
+            }
+          });
+        }
+      }
+    }
+    
+    function stopDrag(e) {
+      window.removeEventListener('pointermove', onDrag);
+      window.removeEventListener('pointerup', stopDrag);
+      currentDrag = null;
+    }
+    
+    /***********************
+     * 横棒部分のクリックで reset と barSound を再生
+     ***********************/
+    document.querySelectorAll('.bar-top-line, .main-bar, .bar-bottom-line').forEach(el => {
+      el.addEventListener('click', function(e) {
+        e.stopPropagation();
+        barSound.currentTime = 0;
+        barSound.play();
+        document.getElementById('resetBtn').click();
+      });
+    });
+    
+    /***********************
+     * #abacus-inner のクリック処理（キャプチャ段階）
+     ***********************/
+    document.getElementById('abacus-inner').addEventListener('click', function(e) {
+      if (e.target.closest('.bar-top-line, .main-bar, .bar-bottom-line')) return;
+      const rect = this.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const borderThickness = 20 * currentScaleFactor;
+      if (x < borderThickness || x > (rect.width - borderThickness) ||
+          y < borderThickness || y > (rect.height - borderThickness)) {
+        document.getElementById('calculateBtn').click();
+        e.stopPropagation();
+      }
+    }, true);
+    
+    /***********************
+     * ヒント機能とミニそろばん（2つ目のコードより）
+     ***********************/
+    const MINI_DIGIT_COUNT = 3;
+    const MINI_UPPER_DEFAULT = -6;
+    const MINI_UPPER_ACTIVE = 8;
+    const LOWER_DEFAULT_TOPS_MINI = [72, 100, 128, 156];
+    const LOWER_ACTIVE_TOPS_MINI  = [42, 70, 98, 126];
+    const DELAY_STEP = 500;
+    const miniAbacus = document.getElementById('mini-abacus');
+    
+    function createMiniAbacus() {
+      miniAbacus.innerHTML = "";
+      const singleBar = document.createElement('div');
+      singleBar.classList.add('mini-single-bar');
+      singleBar.style.background = 'url("images/miniframe-border.jpg") center/cover no-repeat';
+      miniAbacus.appendChild(singleBar);
+      for (let i = 0; i < MINI_DIGIT_COUNT; i++) {
+        const col = document.createElement('div');
+        col.classList.add('mini-column');
+        col.style.left = (i * 50) + "px";
+        const rod = document.createElement('div');
+        rod.classList.add('mini-rod');
+        col.appendChild(rod);
+        const upper = document.createElement('div');
+        upper.classList.add('mini-bead', 'mini-upper');
+        const upperImg = document.createElement('img');
+        upperImg.src = "images/bead.png";
+        upper.appendChild(upperImg);
+        col.appendChild(upper);
+        for (let j = 0; j < 4; j++) {
+          const lower = document.createElement('div');
+          lower.classList.add('mini-bead', 'mini-lower');
+          lower.dataset.index = j;
+          const lowerImg = document.createElement('img');
+          lowerImg.src = "images/bead.png";
+          lower.appendChild(lowerImg);
+          col.appendChild(lower);
+        }
+        miniAbacus.appendChild(col);
+      }
+    }
+    
+    function resetMiniAbacus() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      columns.forEach(col => {
+        col.querySelector('.mini-upper').style.top = MINI_UPPER_DEFAULT + "px";
+        const lowers = col.querySelectorAll('.mini-lower');
+        lowers.forEach((lb, idx) => {
+          lb.style.top = LOWER_DEFAULT_TOPS_MINI[idx] + "px";
+        });
+      });
+    }
+    
+    function updateLowerBeadsForColumn(column, activeCount) {
+      const lowers = column.querySelectorAll('.mini-lower');
+      lowers.forEach((bead, idx) => {
+        bead.style.top = idx < activeCount ? LOWER_ACTIVE_TOPS_MINI[idx] + "px" : LOWER_DEFAULT_TOPS_MINI[idx] + "px";
+      });
+    }
+    
+    function animate8plus9() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2], col2 = columns[1];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 3);
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 2);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP * 3);
+    }
+    
+    function animate2plus4() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 2);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 1);
+      }, DELAY_STEP * 3);
+    }
+    
+    function animate6plus7() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2], col2 = columns[1];
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+        updateLowerBeadsForColumn(col3, 1);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 3);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_DEFAULT + "px";
+      }, DELAY_STEP * 3);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP * 4);
+    }
+    
+    function animate9plus2() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2], col2 = columns[1];
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_DEFAULT + "px";
+        updateLowerBeadsForColumn(col3, 1);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP * 3);
+    }
+    
+    function animate4plus3() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 2);
+      }, DELAY_STEP * 3);
+    }
+    
+    function animate8plus6() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2], col2 = columns[1];
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+        updateLowerBeadsForColumn(col3, 3);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_DEFAULT + "px";
+      }, DELAY_STEP * 3);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP * 4);
+    }
+    
+    function animate11minus3() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col2 = columns[1], col3 = columns[2];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 1);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 0);
+      }, DELAY_STEP * 3);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+        updateLowerBeadsForColumn(col3, 3);
+      }, DELAY_STEP * 4);
+    }
+    
+    function animate15minus6() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col2 = columns[1], col3 = columns[2];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 0);
+      }, DELAY_STEP * 3);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP * 4);
+    }
+    
+    function animate5minus1() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2];
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_DEFAULT + "px";
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP * 3);
+    }
+    
+    function animate7minus3() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col3 = columns[2];
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+        updateLowerBeadsForColumn(col3, 2);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_DEFAULT + "px";
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP * 3);
+    }
+    
+    function animate12minus6() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col2 = columns[1], col3 = columns[2];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 2);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 0);
+      }, DELAY_STEP * 3);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP * 4);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 1);
+      }, DELAY_STEP * 5);
+    }
+    
+    function animate14minus8() {
+      const columns = miniAbacus.querySelectorAll('.mini-column');
+      const col2 = columns[1], col3 = columns[2];
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 1);
+      }, DELAY_STEP);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 4);
+      }, DELAY_STEP * 2);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col2, 0);
+      }, DELAY_STEP * 3);
+      setTimeout(() => {
+        col3.querySelector('.mini-upper').style.top = MINI_UPPER_ACTIVE + "px";
+      }, DELAY_STEP * 4);
+      setTimeout(() => {
+        updateLowerBeadsForColumn(col3, 1);
+      }, DELAY_STEP * 5);
+    }
+    
+    function animateMini(expr) {
+      resetMiniAbacus();
+      if (expr === "8+9") animate8plus9();
+      else if (expr === "2+4") animate2plus4();
+      else if (expr === "6+7") animate6plus7();
+      else if (expr === "9+2") animate9plus2();
+      else if (expr === "4+3") animate4plus3();
+      else if (expr === "8+6") animate8plus6();
+      else if (expr === "11-3") animate11minus3();
+      else if (expr === "15-6") animate15minus6();
+      else if (expr === "5-1") animate5minus1();
+      else if (expr === "7-3") animate7minus3();
+      else if (expr === "12-6") animate12minus6();
+      else if (expr === "14-8") animate14minus8();
+      else alert("未対応の式: " + expr);
+    }
+    
+    const exampleBtns = document.querySelectorAll('.example-btn');
+    exampleBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        animateMini(btn.dataset.exp);
+      });
+    });
+    
+    let hintVisible = false;
+    const hintCard = document.getElementById('hint-card');
+    const hintAddBtn = document.getElementById('hintAddBtn');
+    const hintSubBtn = document.getElementById('hintSubBtn');
+    const addLevels = document.getElementById('addLevels');
+    const subLevels = document.getElementById('subLevels');
+    
+    document.getElementById('hintBtn').addEventListener('click', () => {
+      hintVisible = !hintVisible;
+      hintCard.style.display = hintVisible ? 'flex' : 'none';
+    });
+    
+    hintAddBtn.addEventListener('click', () => {
+      addLevels.classList.add('active');
+      subLevels.classList.remove('active');
+    });
+    
+    hintSubBtn.addEventListener('click', () => {
+      subLevels.classList.add('active');
+      addLevels.classList.remove('active');
+    });
+  </script>
+</body>
+</html>
